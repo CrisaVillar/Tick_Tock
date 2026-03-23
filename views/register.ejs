@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Tick-Tock to Top Marks | Time Management</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Poppins&display=swap');
+
+    body {
+      font-family: 'Poppins', sans-serif;
+      background: linear-gradient(to bottom right, #f8f9fa, #e2f0ff);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0;
+    }
+
+    .card {
+      max-width: 450px;
+      width: 100%;
+      padding: 40px 30px;
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.1);
+      border-radius: 20px;
+      background: #fff;
+      transition: box-shadow 0.3s, transform 0.3s;
+    }
+
+    .card:hover {
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.15);
+      transform: translateY(-2px);
+    }
+
+    .header-title {
+      font-size: 2rem;
+      font-weight: 700;
+      color: #004aad;
+    }
+
+    .header-subtitle {
+      font-size: 0.9rem;
+      color: #555;
+    }
+
+    h2 {
+      text-align: center;
+      font-weight: 700;
+      margin-bottom: 20px;
+      color: #004aad;
+    }
+
+    .form-label {
+      font-weight: 600;
+      font-size: 1rem;
+    }
+
+    .form-control {
+      padding: 14px 16px;
+      border-radius: 10px;
+      border: 1px solid #ccc;
+      font-size: 1rem;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .form-control:focus {
+      border-color: #004aad;
+      box-shadow: 0 0 0 0.2rem rgba(0, 74, 173, 0.25);
+      outline: none;
+    }
+
+    .btn-primary {
+      background-color: #004aad;
+      border-radius: 25px;
+      padding: 12px;
+      font-size: 1.1rem;
+      font-weight: 600;
+      transition: background-color 0.3s, transform 0.2s;
+    }
+
+    .btn-primary:hover {
+      background-color: #002b6f;
+      transform: translateY(-2px);
+    }
+
+    .register-link {
+      display: inline-block;
+      margin-top: 15px;
+      font-weight: 600;
+      color: #004aad;
+      text-decoration: none;
+      transition: color 0.2s, text-decoration 0.2s;
+    }
+
+    .register-link:hover {
+      color: #002b6f;
+      text-decoration: underline;
+    }
+
+    @media(max-width: 500px){
+      .card {
+        padding: 30px 20px;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <%- include('partials/alert') %>
+
+  <div class="card shadow-lg">
+    <div class="text-center mb-4">
+      <div class="header-title mb-2">Tick-Tock to Top Marks</div>
+      <div class="header-subtitle">Time Management for Students</div>
+    </div>
+
+    <h2 class="mb-4">Student Registration</h2>
+
+    <form action="/auth/register" method="POST">
+      <div class="d-flex flex-wrap gap-3 mb-3">
+        <div class="flex-fill">
+          <label for="name" class="form-label">Full Name</label>
+          <input type="text" id="name" name="name" class="form-control" placeholder="Enter your full name" required>
+        </div>
+        <div class="flex-fill">
+          <label for="email" class="form-label">Email</label>
+          <input type="email" id="email" name="email" class="form-control" placeholder="Enter email" required>
+        </div>
+      </div>
+
+      <div class="d-flex flex-wrap gap-3 mb-3">
+        <div class="flex-fill">
+          <label for="password" class="form-label">Password</label>
+          <input type="password" id="password" name="password" class="form-control" placeholder="Create a password" required>
+        </div>
+        <div class="flex-fill">
+          <label for="course" class="form-label">Course</label>
+          <input type="text" id="course" name="course" class="form-control" placeholder="e.g., BSIT, BSBA" required>
+        </div>
+      </div>
+
+      <div class="mb-3">
+        <label for="year_level" class="form-label">Year Level</label>
+        <select id="year_level" name="year_level" class="form-select" required>
+          <option value="" disabled selected>Select year level</option>
+          <option value="1st Year">1st Year</option>
+          <option value="2nd Year">2nd Year</option>
+          <option value="3rd Year">3rd Year</option>
+          <option value="4th Year">4th Year</option>
+        </select>
+      </div>
+
+      <div class="mt-4 mb-3">
+        <button type="submit" class="btn btn-primary w-100 mb-3">Register</button>
+      </div>
+    </form>
+
+    <div class="text-center mt-3">
+      <p class="mb-0">Already have an account? 
+        <a href="/auth/login" class="register-link">Login here</a>
+      </p>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
