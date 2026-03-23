@@ -1,13 +1,11 @@
-
 const { Pool } = require('pg');
 
-const client = new Pool({
-  connectionString: process.env.DATABASE_URL, 
-  ssl: { rejectUnauthorized: false }        
+const pool = new Pool({
+  user: 'CrisaVillar',                
+  host: 'tick-tock-db.onrender.com',
+  database: 'tick_tock1',      
+  password: '',                  
+  port: 5432                    
 });
 
-client.connect()
-  .then(() => console.log('Postgres DB connected!'))
-  .catch(err => console.error('Postgres connection error', err));
-
-module.exports = client;
+module.exports = pool;
