@@ -1,16 +1,13 @@
-const mysql = require('mysql');
 
-const conn = mysql.createConnection({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS,
-  database: process.env.DB_NAME,
-  port: process.env.DB_PORT
+const { Pool } = require('pg');
+
+const client = new Pool({
+  connectionString: process.env.DATABASE_URL, 
+  ssl: { rejectUnauthorized: false }        
 });
 
-conn.connect((err) => {
-  if(err) throw err;
-  console.log("Database Connected!");
-});
+client.connect()
+  .then(() => console.log('Postgres DB connected!'))
+  .catch(err => console.error('Postgres connection error', err));
 
-module.exports = conn;
+module.exports = client;
