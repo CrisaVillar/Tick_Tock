@@ -1,7 +1,7 @@
+
 const express = require('express');
 const router = express.Router();
-const conn = require('../conn');
-
+const client = require('../conn');
 
 function showMessage(req) {
   const message = req.session.message;
@@ -9,309 +9,256 @@ function showMessage(req) {
   return message;
 }
 
-// Student Dashboard
-router.get('/dashboard', (req, res) => {
+// --- Dashboard ---
+router.get('/dashboard', async (req, res) => {
   if (!req.session.student) return res.redirect('/auth/login');
-  
   const studId = req.session.student.student_id;
 
-  const dashQuery = {
-    totalTasks: 'SELECT COUNT(*) AS total FROM tasks WHERE student_id = ?',
-    completedTasks: 'SELECT COUNT(*) AS completed FROM tasks WHERE student_id = ? AND status = "Done"',
-    tasksPriorities: `
-      SELECT 
-        SUM(CASE WHEN priority = "High" THEN 1 ELSE 0 END) AS high,
-        SUM(CASE WHEN priority = "Medium" THEN 1 ELSE 0 END) AS medium,
-        SUM(CASE WHEN priority = "Low" THEN 1 ELSE 0 END) AS low  
-      FROM tasks WHERE student_id = ?
-    `,
-    totalStudySessions: 'SELECT COUNT(*) AS total_session FROM study_sessions WHERE student_id = ?',
-    totalStudyTime: 'SELECT COALESCE(SUM(duration_minutes),0) AS total_minutes FROM study_sessions WHERE student_id = ?',
-    studyBySubject: `SELECT subject, SUM(duration_minutes) AS total_minutes FROM study_sessions WHERE student_id = ? GROUP BY subject`,
-    recentSessions: `SELECT subject, duration_minutes, start_time FROM study_sessions WHERE student_id = ? ORDER BY start_time DESC LIMIT 5`
-  };
+  try {
+    const totalTasks = await client.query('SELECT COUNT(*) AS total FROM tasks WHERE student_id = $1', [studId]);
+    const completedTasks = await client.query('SELECT COUNT(*) AS completed FROM tasks WHERE student_id = $1 AND status = $2', [studId, 'Done']);
+    const priorityRes = await client.query(`
+      SELECT
+        SUM(CASE WHEN priority='High' THEN 1 ELSE 0 END) AS high,
+        SUM(CASE WHEN priority='Medium' THEN 1 ELSE 0 END) AS medium,
+        SUM(CASE WHEN priority='Low' THEN 1 ELSE 0 END) AS low
+      FROM tasks
+      WHERE student_id=$1
+    `, [studId]);
+    const studySessRes = await client.query('SELECT COUNT(*) AS total_session FROM study_sessions WHERE student_id=$1', [studId]);
+    const studyTimeRes = await client.query('SELECT COALESCE(SUM(duration_minutes),0) AS total_minutes FROM study_sessions WHERE student_id=$1', [studId]);
+    const subjectRes = await client.query('SELECT subject, SUM(duration_minutes) AS total_minutes FROM study_sessions WHERE student_id=$1 GROUP BY subject', [studId]);
+    const recentRes = await client.query('SELECT subject, duration_minutes, start_time FROM study_sessions WHERE student_id=$1 ORDER BY start_time DESC LIMIT 5', [studId]);
 
-  conn.query(dashQuery.totalTasks, [studId], (err, totalTaskRes) => {
-    if (err) throw err;
-    conn.query(dashQuery.completedTasks, [studId], (err, completedTasksRes) => {
-      if (err) throw err;
-      conn.query(dashQuery.tasksPriorities, [studId], (err, priorityRes) => {
-        if (err) throw err;
-        conn.query(dashQuery.totalStudySessions, [studId], (err, studySessRes) => {
-          if (err) throw err;
-          conn.query(dashQuery.totalStudyTime, [studId], (err, studyTimeRes) => {
-            if (err) throw err;
-            conn.query(dashQuery.studyBySubject, [studId], (err, subjectRes) => {
-              if (err) throw err;
-              conn.query(dashQuery.recentSessions, [studId], (err, recentRes) => {
-                if (err) throw err;
+    const total = totalTasks.rows[0].total;
+    const completed = completedTasks.rows[0].completed;
+    const pending = total - completed;
+    const totalSession = studySessRes.rows[0].total_session;
+    const totalMinutes = studyTimeRes.rows[0].total_minutes;
+    const totalHours = (totalMinutes / 60).toFixed(1);
 
-                const totalTasks = totalTaskRes[0].total;
-                const completedTasks = completedTasksRes[0].completed;
-                const pendingTasks = totalTasks - completedTasks;
-                const totalSession = studySessRes[0].total_session;
-                const totalStudyMinutes = studyTimeRes[0].total_minutes;
-                const totalStudyHours = (totalStudyMinutes / 60).toFixed(1);
-                const priorityStat = {
-                  high: priorityRes[0].high || 0,
-                  medium: priorityRes[0].medium || 0,
-                  low: priorityRes[0].low || 0
-                };
+    const priorityStat = {
+      high: priorityRes.rows[0].high || 0,
+      medium: priorityRes.rows[0].medium || 0,
+      low: priorityRes.rows[0].low || 0
+    };
 
-                res.render('dashboard', {
-                  student: req.session.student,
-                  totalTasks,
-                  completedTasks,
-                  pendingTasks,
-                  totalSession,
-                  totalStudyHours,
-                  priorityStat,
-                  studyBySubject: subjectRes,
-                  recentSessions: recentRes,
-                  message: showMessage(req)
-                });
-              });
-            });
-          });
-        });
-      });
+    res.render('dashboard', {
+      student: req.session.student,
+      totalTasks: total,
+      completedTasks: completed,
+      pendingTasks: pending,
+      totalSession,
+      totalStudyHours: totalHours,
+      priorityStat,
+      studyBySubject: subjectRes.rows,
+      recentSessions: recentRes.rows,
+      message: showMessage(req)
     });
-  });
+
+  } catch (err) {
+    console.error(err);
+    req.session.message = { type: 'danger', text: 'Failed to load dashboard.' };
+    res.redirect('/auth/login');
+  }
 });
 
-// Daily Planner
-router.get('/daily-planner', (req, res) => {
+// --- Daily Planner ---
+router.get('/daily-planner', async (req, res) => {
   if (!req.session.student) return res.redirect('/auth/login');
-
   const studId = req.session.student.student_id;
-  const plan = 'SELECT * FROM tasks WHERE student_id = ? ORDER BY start_time ASC';
 
-  conn.query(plan, [studId], (err, result) => {
-    if (err) throw err;
+  try {
+    const plan = await client.query('SELECT * FROM tasks WHERE student_id=$1 ORDER BY start_time ASC', [studId]);
     res.render('daily-planner', {
       student: req.session.student,
-      tasks: result,
+      tasks: plan.rows,
       message: showMessage(req)
     });
-  });
+  } catch (err) {
+    console.error(err);
+    req.session.message = { type: 'danger', text: 'Failed to load tasks.' };
+    res.redirect('/student/dashboard');
+  }
 });
 
-// Add Task Form
+// --- Add Task ---
 router.get('/add-task', (req, res) => {
   if (!req.session.student) return res.redirect('/auth/login');
-  res.render('add-tasks', {
-    student: req.session.student,
-    message: showMessage(req)
-  });
+  res.render('add-tasks', { student: req.session.student, message: showMessage(req) });
 });
 
-// Handle Add Task Submission
-router.post('/add-task', (req, res) => {
-  const { title, description, subject, start_time, end_time, priority } = req.body;
-  const studentId = req.session.student.student_id || req.session.student.id;
-
-  const add = `
-    INSERT INTO tasks (student_id, title, description, subject, start_time, end_time, priority)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
-  `;
-
-  conn.query(add, [studentId, title, description, subject, start_time, end_time, priority], (err) => {
-    if (err) {
-      req.session.message = { type: 'danger', text: 'Failed to add task.' };
-      return res.redirect('/student/daily-planner');
-    }
-
-    req.session.message = { type: 'success', text: 'New task added successfully!' };
-    res.redirect('/student/daily-planner');
-  });
-});
-
-// Update Task (checkbox)
-router.post('/update-status/:task_id', (req, res) => {
+router.post('/add-task', async (req, res) => {
   if (!req.session.student) return res.redirect('/auth/login');
+  const { title, description, subject, start_time, end_time, priority } = req.body;
+  const studId = req.session.student.student_id;
 
+  try {
+    await client.query(
+      `INSERT INTO tasks (student_id, title, description, subject, start_time, end_time, priority)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+      [studId, title, description, subject, start_time || null, end_time || null, priority]
+    );
+    req.session.message = { type: 'success', text: 'Task added successfully!' };
+    res.redirect('/student/daily-planner');
+  } catch (err) {
+    console.error(err);
+    req.session.message = { type: 'danger', text: 'Failed to add task.' };
+    res.redirect('/student/daily-planner');
+  }
+});
+
+// --- Update Task Status ---
+router.post('/update-status/:task_id', async (req, res) => {
+  if (!req.session.student) return res.redirect('/auth/login');
   const taskId = req.params.task_id;
   const newStatus = req.body.status === 'Done' ? 'Done' : 'Pending';
-  const update = 'UPDATE tasks SET status = ? WHERE task_id = ?';
 
-  conn.query(update, [newStatus, taskId], (err) => {
-    if (err) {
-      req.session.message = { type: 'danger', text: 'Failed to update task status.' };
-      return res.redirect('/student/daily-planner');
-    }
-
+  try {
+    await client.query('UPDATE tasks SET status=$1 WHERE task_id=$2', [newStatus, taskId]);
     req.session.message = { type: 'success', text: `Task marked as ${newStatus}.` };
     res.redirect('/student/daily-planner');
-  });
+  } catch (err) {
+    console.error(err);
+    req.session.message = { type: 'danger', text: 'Failed to update task.' };
+    res.redirect('/student/daily-planner');
+  }
 });
 
-// Edit Task
-router.get('/edit-task/:task_id', (req, res) => {
+// --- Edit Task ---
+router.get('/edit-task/:task_id', async (req, res) => {
   if (!req.session.student) return res.redirect('/auth/login');
-
   const taskId = req.params.task_id;
-  conn.query('SELECT * FROM tasks WHERE task_id = ?', [taskId], (err, result) => {
-    if (err) throw err;
-    if (result.length === 0) return res.send('Task not found!');
 
-    res.render('edit-task', { 
-      student: req.session.student,
-      task: result[0],
-      message: showMessage(req)
-    });
-  });
+  try {
+    const taskRes = await client.query('SELECT * FROM tasks WHERE task_id=$1', [taskId]);
+    if (taskRes.rows.length === 0) return res.send('Task not found!');
+    res.render('edit-task', { student: req.session.student, task: taskRes.rows[0], message: showMessage(req) });
+  } catch (err) {
+    console.error(err);
+    req.session.message = { type: 'danger', text: 'Failed to fetch task.' };
+    res.redirect('/student/daily-planner');
+  }
 });
 
-// Handle Edit Task
-router.post('/edit-task/:task_id', (req, res) => {
+router.post('/edit-task/:task_id', async (req, res) => {
   const taskId = req.params.task_id;
   const { title, description, subject, start_time, end_time, priority } = req.body;
 
-  const edit_task = `
-    UPDATE tasks 
-    SET title=?, description=?, subject=?, start_time=?, end_time=?, priority=? 
-    WHERE task_id=?
-  `;
-
-  conn.query(edit_task, [title, description, subject, start_time, end_time, priority, taskId], (err) => {
-    if (err) {
-      req.session.message = { type: 'danger', text: 'Error updating task.' };
-      return res.redirect('/student/daily-planner');
-    }
-
+  try {
+    await client.query(
+      `UPDATE tasks SET title=$1, description=$2, subject=$3, start_time=$4, end_time=$5, priority=$6 WHERE task_id=$7`,
+      [title, description, subject, start_time || null, end_time || null, priority, taskId]
+    );
     req.session.message = { type: 'success', text: 'Task updated successfully!' };
     res.redirect('/student/daily-planner');
-  });
+  } catch (err) {
+    console.error(err);
+    req.session.message = { type: 'danger', text: 'Error updating task.' };
+    res.redirect('/student/daily-planner');
+  }
 });
 
-// Delete Task
-router.post('/delete-task/:task_id', (req, res) => {
+// --- Delete Task ---
+router.post('/delete-task/:task_id', async (req, res) => {
   if (!req.session.student) return res.redirect('/auth/login');
-
   const taskId = req.params.task_id;
-  conn.query('DELETE FROM tasks WHERE task_id = ?', [taskId], (err) => {
-    if (err) {
-      req.session.message = { type: 'danger', text: 'Error deleting task.' };
-      return res.redirect('/student/daily-planner');
-    }
 
+  try {
+    await client.query('DELETE FROM tasks WHERE task_id=$1', [taskId]);
     req.session.message = { type: 'success', text: 'Task deleted successfully!' };
     res.redirect('/student/daily-planner');
-  });
+  } catch (err) {
+    console.error(err);
+    req.session.message = { type: 'danger', text: 'Error deleting task.' };
+    res.redirect('/student/daily-planner');
+  }
 });
 
-// Study Tracker
-router.get('/study-tracker', (req, res) => {
+// --- Study Tracker ---
+router.get('/study-tracker', async (req, res) => {
   if (!req.session.student) return res.redirect('/auth/login');
-
   const studId = req.session.student.student_id;
-  const studTrack = `SELECT * FROM study_sessions WHERE student_id = ? ORDER BY start_time DESC, date_created DESC`;
 
-  conn.query(studTrack, [studId], (err, result) => {
-    if (err) throw err;
-    res.render('study-tracker', {
-      student: req.session.student,
-      sessions: result,
-      message: showMessage(req)
-    });
-  });
+  try {
+    const sessions = await client.query('SELECT * FROM study_sessions WHERE student_id=$1 ORDER BY start_time DESC', [studId]);
+    res.render('study-tracker', { student: req.session.student, sessions: sessions.rows, message: showMessage(req) });
+  } catch (err) {
+    console.error(err);
+    req.session.message = { type: 'danger', text: 'Failed to load study sessions.' };
+    res.redirect('/student/dashboard');
+  }
 });
 
-// Form to log new session
+// --- Log New Study Session ---
 router.get('/log-session', (req, res) => {
   if (!req.session.student) return res.redirect('/auth/login');
-  res.render('log-session', {
-    student: req.session.student,
-    message: showMessage(req)
-  });
+  res.render('log-session', { student: req.session.student, message: showMessage(req) });
 });
 
-// Submit new study session
-router.post('/log-session', (req, res) => {
+router.post('/log-session', async (req, res) => {
   if (!req.session.student) return res.redirect('/auth/login');
-
-  const studId = req.session.student.student_id;
   const { subject, description, start_time, duration_minutes } = req.body;
+  const studId = req.session.student.student_id;
 
-  const log = `
-    INSERT INTO study_sessions (student_id, subject, description, start_time, duration_minutes)
-    VALUES (?, ?, ?, ?, ?)
-  `;
-
-  conn.query(log, [studId, subject, description, start_time || null, duration_minutes || 0], (err) => {
-    if (err) {
-      req.session.message = { type: 'danger', text: 'Error logging study session.' };
-      return res.redirect('/student/study-tracker');
-    }
-
+  try {
+    await client.query(
+      `INSERT INTO study_sessions (student_id, subject, description, start_time, duration_minutes)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [studId, subject, description, start_time || null, duration_minutes || 0]
+    );
     req.session.message = { type: 'success', text: 'Study session logged successfully!' };
     res.redirect('/student/study-tracker');
-  });
+  } catch (err) {
+    console.error(err);
+    req.session.message = { type: 'danger', text: 'Error logging study session.' };
+    res.redirect('/student/study-tracker');
+  }
 });
 
-// Delete study session
-router.post('/delete-session/:study_id', (req, res) => {
+// --- Delete Study Session ---
+router.post('/delete-session/:study_id', async (req, res) => {
   if (!req.session.student) return res.redirect('/auth/login');
-
   const studyId = req.params.study_id;
-  conn.query('DELETE FROM study_sessions WHERE study_id = ?', [studyId], (err) => {
-    if (err) {
-      req.session.message = { type: 'danger', text: 'Error deleting study session.' };
-      return res.redirect('/student/study-tracker');
-    }
 
+  try {
+    await client.query('DELETE FROM study_sessions WHERE study_id=$1', [studyId]);
     req.session.message = { type: 'success', text: 'Study session deleted successfully!' };
     res.redirect('/student/study-tracker');
-  });
+  } catch (err) {
+    console.error(err);
+    req.session.message = { type: 'danger', text: 'Error deleting study session.' };
+    res.redirect('/student/study-tracker');
+  }
 });
 
-
-// View Profile
-router.get('/profile', (req, res) => {
-  if (!req.session.student) {
-    return res.redirect('/auth/login');
-  }
-
+// --- View Profile ---
+router.get('/profile', async (req, res) => {
+  if (!req.session.student) return res.redirect('/auth/login');
   const studId = req.session.student.student_id;
 
-  const view = 'SELECT name, email, course, year_level FROM students WHERE student_id = ?';
-
-  conn.query(view, [studId], (err, result) => {
-    if (err) throw err;
-
-    if (result.length === 0) {
+  try {
+    const userRes = await client.query('SELECT name, email, course, year_level FROM students WHERE student_id=$1', [studId]);
+    if (userRes.rows.length === 0) {
       req.session.message = { type: 'danger', text: 'Profile not found.' };
       return res.redirect('/student/dashboard');
     }
-
-    const user = result[0];
-
-    res.render('profile', { 
-      user,
-      student: req.session.student,
-      message: showMessage(req)
-    });
-  });
+    res.render('profile', { student: req.session.student, user: userRes.rows[0], message: showMessage(req) });
+  } catch (err) {
+    console.error(err);
+    req.session.message = { type: 'danger', text: 'Failed to load profile.' };
+    res.redirect('/student/dashboard');
+  }
 });
 
-// Update Profile
-router.post('/update-profile', (req, res) => {
-  if (!req.session.student) {
-    return res.redirect('/auth/login');
-  }
-
+// --- Update Profile ---
+router.post('/update-profile', async (req, res) => {
+  if (!req.session.student) return res.redirect('/auth/login');
   const studId = req.session.student.student_id;
-  const name = req.body.name;
-  const course = req.body.course;
-  const year_level = req.body.year_level;
+  const { name, course, year_level } = req.body;
 
-  const sql = 'UPDATE students SET name = ?, course = ?, year_level = ? WHERE student_id = ?';
-
-  conn.query(sql, [name, course, year_level, studId], (err) => {
-    if (err) {
-      req.session.message = { type: 'danger', text: 'Failed to update profile.' };
-      return res.redirect('/student/profile');
-    }
+  try {
+    await client.query('UPDATE students SET name=$1, course=$2, year_level=$3 WHERE student_id=$4', [name, course, year_level, studId]);
 
     req.session.student.name = name;
     req.session.student.course = course;
@@ -319,10 +266,11 @@ router.post('/update-profile', (req, res) => {
 
     req.session.message = { type: 'success', text: 'Profile updated successfully!' };
     res.redirect('/student/profile');
-  });
+  } catch (err) {
+    console.error(err);
+    req.session.message = { type: 'danger', text: 'Failed to update profile.' };
+    res.redirect('/student/profile');
+  }
 });
-
-
-
 
 module.exports = router;
